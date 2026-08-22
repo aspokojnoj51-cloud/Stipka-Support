@@ -107,6 +107,13 @@ def get_user_main_kb():
         ]
     )
 
+def get_back_to_main_kb():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data="user_main_menu")]
+        ]
+    )
+
 def get_user_tickets_kb(user_id: int):
     user_tickets = [t_id for t_id, data in tickets.items() if data["user_id"] == user_id]
     buttons = []
@@ -189,7 +196,7 @@ async def cmd_tickets(message: types.Message):
     user_tickets = [t_id for t_id, data in tickets.items() if data["user_id"] == user_id]
 
     if not user_tickets:
-        await message.answer("У вас пока нет обращений. Просто напишите сообщение, и мы вам ответим.", reply_markup=get_user_main_kb())
+        await message.answer("У вас пока нет обращений. Просто напишите сообщение, и мы вам ответим.")
         return
 
     await message.answer(
@@ -206,6 +213,7 @@ async def user_main_menu_cb(callback: types.CallbackQuery, state: FSMContext):
         parse_mode="Markdown",
         reply_markup=get_user_main_kb()
     )
+    await callback.answer()
 
 @dp.callback_query(F.data == "user_my_tickets")
 async def process_my_tickets(callback: types.CallbackQuery):
@@ -215,8 +223,9 @@ async def process_my_tickets(callback: types.CallbackQuery):
     if not user_tickets:
         await callback.message.edit_text(
             "У вас пока нет обращений. Просто напишите сообщение, и мы вам ответим.",
-            reply_markup=get_user_main_kb()
+            reply_markup=get_back_to_main_kb()
         )
+        await callback.answer()
         return
 
     await callback.message.edit_text(
@@ -224,6 +233,7 @@ async def process_my_tickets(callback: types.CallbackQuery):
         parse_mode="Markdown",
         reply_markup=get_user_tickets_kb(user_id)
     )
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("user_view_ticket_"))
 async def user_view_ticket(callback: types.CallbackQuery):
@@ -252,6 +262,7 @@ async def user_view_ticket(callback: types.CallbackQuery):
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons)
     )
+    await callback.answer()
 
 
 # --- АДМИН-ПАНЕЛЬ ---
@@ -279,6 +290,7 @@ async def admin_main_menu_cb(callback: types.CallbackQuery, state: FSMContext):
         parse_mode="Markdown",
         reply_markup=get_admin_main_kb()
     )
+    await callback.answer()
 
 @dp.callback_query(F.data == "admin_exit_chat")
 async def admin_exit_chat(callback: types.CallbackQuery, state: FSMContext):
@@ -307,6 +319,7 @@ async def admin_manage_admins(callback: types.CallbackQuery):
         parse_mode="Markdown",
         reply_markup=get_admins_manage_kb()
     )
+    await callback.answer()
 
 @dp.callback_query(F.data == "admin_add_new")
 async def admin_add_new_start(callback: types.CallbackQuery, state: FSMContext):
@@ -404,6 +417,7 @@ async def admin_list_tickets(callback: types.CallbackQuery):
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await callback.message.edit_text(title, parse_mode="Markdown", reply_markup=kb)
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("view_ticket_"))
 async def admin_view_ticket(callback: types.CallbackQuery):
@@ -428,6 +442,7 @@ async def admin_view_ticket(callback: types.CallbackQuery):
         parse_mode="Markdown",
         reply_markup=get_admin_ticket_manage_kb(ticket_id)
     )
+    await callback.answer()
 
 # Просмотр истории сообщений админом:
 # текст (пользователь + админ) — одним общим сообщением,
@@ -584,6 +599,7 @@ async def close_ticket(callback: types.CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="« Назад в админ панель", callback_data="admin_main_menu")]
             ])
         )
+        await callback.answer()
     else:
         await callback.answer("Тикет уже закрыт.")
 

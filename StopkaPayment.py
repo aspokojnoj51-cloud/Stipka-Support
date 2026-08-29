@@ -80,15 +80,21 @@ def item_preview_text(item: dict) -> str:
 def get_admin_status_symbol(ticket: dict) -> str:
     if ticket["status"] == "closed":
         return "🔴"
-    if ticket["messages"] and ticket["messages"][-1]["sender"].startswith("Поддержка"):
-        return "🟡"  # ответили, ждём клиента
+    last_msg = ticket["messages"][-1] if ticket["messages"] else None
+    if last_msg and last_msg["sender"].startswith("Поддержка"):
+        if last_msg.get("text") == "Администрация скоро с вами свяжется.":
+            return "🟢"  # это сообщение — сигнал, что клиент уже написал и ждёт админа
+        return "🟠"  # ответили (в т.ч. отправили карту), ждём клиента
     return "🟢"  # клиент ответил / написал — ждёт ответа админа
 
 def get_admin_status_label(ticket: dict) -> str:
     if ticket["status"] == "closed":
         return "🔴 Закрыт"
-    if ticket["messages"] and ticket["messages"][-1]["sender"].startswith("Поддержка"):
-        return "🟡 Открыт (ответ отправлен, ждём клиента)"
+    last_msg = ticket["messages"][-1] if ticket["messages"] else None
+    if last_msg and last_msg["sender"].startswith("Поддержка"):
+        if last_msg.get("text") == "Администрация скоро с вами свяжется.":
+            return "🟢 Открыт (клиент ответил, ждёт вас)"
+        return "🟠 Открыт (ответ отправлен, ждём клиента)"
     return "🟢 Открыт (клиент ответил, ждёт вас)"
 
 # --- ВСПОМОГАТЕЛЬНОЕ: отправка длинного текста частями ---
@@ -399,7 +405,7 @@ async def admin_list_tickets(callback: types.CallbackQuery):
         title = (
             "📩 **Активные тикеты:**\n\n"
             "🟢 — клиент написал, ждёт ответа админа\n"
-            "🟡 — ответ отправлен, ждём клиента"
+            "🟠 — ответ отправлен, ждём клиента"
         )
     else:
         title = "📁 **Архив тикетов:**\n\n🔴 — закрыт"

@@ -701,6 +701,17 @@ async def handle_user_message(message: types.Message, state: FSMContext):
             "text": question_text,
             "file_id": None
         })
+    elif ticket.pop("awaiting_payment_screenshot", False):
+        # Пользователь ответил своим сообщением (скриншотом или чем-то ещё)
+        # на просьбу отправить скриншот оплаты — сообщаем, что администрация свяжется.
+        followup_text = "Администрация скоро с вами свяжется."
+        await message.answer(followup_text)
+        ticket["messages"].append({
+            "sender": "Поддержка (Бот)",
+            "type": "text",
+            "text": followup_text,
+            "file_id": None
+        })
 
 
 @dp.callback_query(F.data.startswith("pay_q_yes_"))
@@ -712,7 +723,10 @@ async def payment_question_yes(callback: types.CallbackQuery):
         return
 
     card_text = CARD if CARD else "номер карты пока не настроен — напишите нам, мы вышлем его вручную"
-    reply_text = f"Отправьте сумму за вашу подписку на номер карты: `{card_text}`"
+    reply_text = (
+        f"Отправьте сумму за вашу подписку на номер карты: `{card_text}`\n\n"
+        "Следующим сообщением отправьте скриншот с оплатой."
+    )
 
     await callback.message.edit_text(reply_text, parse_mode="Markdown")
     ticket["messages"].append({
@@ -721,6 +735,9 @@ async def payment_question_yes(callback: types.CallbackQuery):
         "text": reply_text,
         "file_id": None
     })
+    # Ждём от пользователя следующее сообщение (скриншот оплаты) —
+    # на него бот ответит отдельным авто-сообщением в handle_user_message.
+    ticket["awaiting_payment_screenshot"] = True
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("pay_q_no_"))

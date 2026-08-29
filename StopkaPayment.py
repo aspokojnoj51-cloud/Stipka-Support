@@ -16,6 +16,7 @@ logging.basicConfig(level=logging.INFO)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SUPER_ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 PORT = int(os.getenv("PORT", 8080))
+CARD = os.getenv("CARD", "")
 
 if not BOT_TOKEN or not SUPER_ADMIN_ID:
     raise ValueError("Пожалуйста, укажите BOT_TOKEN и ADMIN_ID в переменных окружения!")
@@ -80,15 +81,15 @@ def get_admin_status_symbol(ticket: dict) -> str:
     if ticket["status"] == "closed":
         return "🔴"
     if ticket["messages"] and ticket["messages"][-1]["sender"].startswith("Поддержка"):
-        return "🟠"  # ответили, ждём клиента
-    return "🟢"  # ждёт ответа админа
+        return "🟡"  # ответили, ждём клиента
+    return "🟢"  # клиент ответил / написал — ждёт ответа админа
 
 def get_admin_status_label(ticket: dict) -> str:
     if ticket["status"] == "closed":
         return "🔴 Закрыт"
     if ticket["messages"] and ticket["messages"][-1]["sender"].startswith("Поддержка"):
-        return "🟠 Открыт (ответ отправлен, ждём клиента)"
-    return "🟢 Открыт (ждёт ответа)"
+        return "🟡 Открыт (ответ отправлен, ждём клиента)"
+    return "🟢 Открыт (клиент ответил, ждёт вас)"
 
 # --- ВСПОМОГАТЕЛЬНОЕ: отправка длинного текста частями ---
 async def send_chunked_text(target_message: types.Message, text: str, parse_mode=None):
@@ -111,6 +112,14 @@ def get_back_to_main_kb():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="« Назад", callback_data="user_main_menu")]
+        ]
+    )
+
+def get_payment_question_kb(ticket_id: int):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Да", callback_data=f"pay_q_yes_{ticket_id}")],
+            [InlineKeyboardButton(text="❌ Нет", callback_data=f"pay_q_no_{ticket_id}")]
         ]
     )
 
@@ -389,8 +398,8 @@ async def admin_list_tickets(callback: types.CallbackQuery):
     if status_filter == "open":
         title = (
             "📩 **Активные тикеты:**\n\n"
-            "🟢 — ждёт ответа админа\n"
-            "🟠 — ответ отправлен, ждём клиента"
+            "🟢 — клиент написал, ждёт ответа админа\n"
+            "🟡 — ответ отправлен, ждём клиента"
         )
     else:
         title = "📁 **Архив тикетов:**\n\n🔴 — закрыт"
@@ -679,6 +688,65 @@ async def handle_user_message(message: types.Message, state: FSMContext):
                 await message.copy_to(chat_id=admin_id, reply_markup=get_admin_ticket_manage_kb(ticket_id))
         except Exception as e:
             logging.error(f"Ошибка отправки админу {admin_id}: {e}")
+
+    if is_new_ticket:
+        # Новое обращение — сразу уточняем, по какому оно поводу.
+        # Само сообщение пользователя уже сохранено в истории тикета выше,
+        # этот вопрос — просто следующий шаг диалога, а не замена сообщения.
+        question_text = "Вы по поводу оплаты?"
+        await message.answer(question_text, reply_markup=get_payment_question_kb(ticket_id))
+        ticket["messages"].append({
+            "sender": "Поддержка (Бот)",
+            "type": "text",
+            "text": question_text,
+            "file_id": None
+        })
+
+
+@dp.callback_query(F.data.startswith("pay_q_yes_"))
+async def payment_question_yes(callback: types.CallbackQuery):
+    ticket_id = int(callback.data.split("_")[3])
+    ticket = tickets.get(ticket_id)
+    if not ticket or ticket["user_id"] != callback.from_user.id:
+        await callback.answer()
+        return
+
+    card_text = CARD if CARD else "номер карты пока не настроен — напишите нам, мы вышлем его вручную"
+    reply_text = f"Отправьте сумму за вашу подписку на номер карты: `{card_text}`"
+
+    await callback.message.edit_text(reply_text, parse_mode="Markdown")
+    ticket["messages"].append({
+        "sender": "Поддержка (Бот)",
+        "type": "text",
+        "text": reply_text,
+        "file_id": None
+    })
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("pay_q_no_"))
+async def payment_question_no(callback: types.CallbackQuery):
+    ticket_id = int(callback.data.split("_")[3])
+    ticket = tickets.get(ticket_id)
+    if not ticket or ticket["user_id"] != callback.from_user.id:
+        await callback.answer()
+        return
+
+    reply_text = "Администратор скоро вам ответит."
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    await bot.send_message(callback.from_user.id, reply_text)
+
+    ticket["messages"].append({
+        "sender": "Поддержка (Бот)",
+        "type": "text",
+        "text": reply_text,
+        "file_id": None
+    })
+    await callback.answer()
 
 
 # --- ЗАПУСК ---

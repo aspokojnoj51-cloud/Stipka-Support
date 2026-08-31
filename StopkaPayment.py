@@ -77,24 +77,27 @@ def item_preview_text(item: dict) -> str:
     return ""
 
 # --- ВСПОМОГАТЕЛЬНОЕ: статус тикета для АДМИНА (3 цвета) ---
+def _last_awaiting(ticket: dict) -> str:
+    """Кого ждём дальше: 'client' или 'admin'. Берём явную метку на последнем
+    сообщении, если она есть — так это не зависит от точной формулировки
+    текста и не ломается, если текст сообщения потом поменяется."""
+    if not ticket["messages"]:
+        return "admin"
+    last_msg = ticket["messages"][-1]
+    if "awaiting" in last_msg:
+        return last_msg["awaiting"]
+    return "client" if last_msg["sender"].startswith("Поддержка") else "admin"
+
 def get_admin_status_symbol(ticket: dict) -> str:
     if ticket["status"] == "closed":
         return "🔴"
-    last_msg = ticket["messages"][-1] if ticket["messages"] else None
-    if last_msg and last_msg["sender"].startswith("Поддержка"):
-        if last_msg.get("text") == "Администрация скоро с вами свяжется.":
-            return "🟢"  # это сообщение — сигнал, что клиент уже написал и ждёт админа
-        return "🟠"  # ответили (в т.ч. отправили карту), ждём клиента
-    return "🟢"  # клиент ответил / написал — ждёт ответа админа
+    return "🟡" if _last_awaiting(ticket) == "client" else "🟢"
 
 def get_admin_status_label(ticket: dict) -> str:
     if ticket["status"] == "closed":
         return "🔴 Закрыт"
-    last_msg = ticket["messages"][-1] if ticket["messages"] else None
-    if last_msg and last_msg["sender"].startswith("Поддержка"):
-        if last_msg.get("text") == "Администрация скоро с вами свяжется.":
-            return "🟢 Открыт (клиент ответил, ждёт вас)"
-        return "🟠 Открыт (ответ отправлен, ждём клиента)"
+    if _last_awaiting(ticket) == "client":
+        return "🟡 Открыт (ответ отправлен, ждём клиента)"
     return "🟢 Открыт (клиент ответил, ждёт вас)"
 
 # --- ВСПОМОГАТЕЛЬНОЕ: отправка длинного текста частями ---
@@ -405,7 +408,7 @@ async def admin_list_tickets(callback: types.CallbackQuery):
         title = (
             "📩 **Активные тикеты:**\n\n"
             "🟢 — клиент написал, ждёт ответа админа\n"
-            "🟠 — ответ отправлен, ждём клиента"
+            "🟡 — ответ отправлен, ждём клиента"
         )
     else:
         title = "📁 **Архив тикетов:**\n\n🔴 — закрыт"
@@ -483,12 +486,15 @@ async def admin_view_ticket_history(callback: types.CallbackQuery):
     media_items = []
 
     for item in ticket["messages"]:
+        sender_label = item['sender']
+        if sender_label == "Пользователь":
+            sender_label = f"Пользователь (`{ticket['user_id']}`)"
         if item.get("type") == "text":
-            text_lines.append(f"👤 {item['sender']}:\n{item['text']}")
+            text_lines.append(f"👤 {sender_label}:\n{item['text']}")
         else:
             label = "📷 Фото" if item.get("type") == "photo" else "📎 Файл"
             suffix = f" — {item['text']}" if item.get("text") else ""
-            text_lines.append(f"👤 {item['sender']}: [{label}]{suffix}")
+            text_lines.append(f"👤 {sender_label}: [{label}]{suffix}")
             media_items.append(item)
 
     combined_text = f"📜 **История переписки — Тикет #{ticket_id}:**\n\n" + "\n\n".join(text_lines)
@@ -767,7 +773,8 @@ async def payment_question_no(callback: types.CallbackQuery):
         "sender": "Поддержка (Бот)",
         "type": "text",
         "text": reply_text,
-        "file_id": None
+        "file_id": None,
+        "awaiting": "admin"
     })
     await callback.answer()
 
